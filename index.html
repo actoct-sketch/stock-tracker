@@ -188,6 +188,13 @@ tr:hover td{background:var(--bg3)}
         <button class="btn primary" onclick="addTrade()">新增交易</button>
       </div>
     </div>
+    <div class="card">
+      <div class="section-title">最近 10 筆交易</div>
+      <div style="overflow-x:auto"><table>
+        <thead><tr><th>日期</th><th>股票</th><th>類型</th><th>股數</th><th>價格</th><th>金額</th></tr></thead>
+        <tbody id="recent-trades-body"></tbody>
+      </table></div>
+    </div>
   </div>
 
   <!-- 存提款 -->
@@ -290,7 +297,7 @@ async function refreshPrices() {
   const prices = await fetchPrices(codes);
   let updated = false;
   Object.entries(prices).forEach(([code, price]) => {
-    if (price > 0) { state.prices[code] = price; updated = true; }
+    if (price > 0) { state.prices[code] = price; state.prices[String(code).trim()] = price; updated = true; }
   });
   if (updated) { await apiWrite('prices', pricesToRows(state.prices)); renderOverview(); }
 }
@@ -326,7 +333,7 @@ function openDrawer(code) {
   const trades=state.trades.filter(t=>t.code===code).sort((a,b)=>b.date.localeCompare(a.date));
   const divs=state.dividends.filter(d=>d.code===code).sort((a,b)=>b.date.localeCompare(a.date));
   const divTotal=divs.reduce((s,d)=>s+d.cash,0);
-  const avg=h.shares>0?h.cost/h.shares:0, cur=state.prices[code]||avg;
+  const avg=h.shares>0?h.cost/h.shares:0, cur=state.prices[code]||state.prices[String(code).trim()]||avg;
   const mv=cur*h.shares, pnl=mv-h.cost, pct=h.cost>0?pnl/h.cost*100:0;
   document.getElementById('drawer-body').innerHTML=`
     <div class="drawer-stats">
@@ -339,11 +346,11 @@ function openDrawer(code) {
     </div>
     <div class="drawer-section">
       <div class="drawer-section-title">買賣交易（${trades.length} 筆）</div>
-      ${trades.length===0?'<div class="empty">無記錄</div>':'<table><thead><tr><th>日期</th><th>類型</th><th>股數</th><th>價格</th><th>金額</th></tr></thead><tbody>'+trades.map(t=>'<tr><td style="white-space:nowrap">'+t.date+'</td><td><span class="badge '+t.type+'">'+(t.type==='buy'?'買入':'賣出')+'</span></td><td>'+fmt(t.shares)+'</td><td>$'+fmt(fmtN(t.price,2))+'</td><td>$'+fmt(t.amount.toFixed(0))+'</td></tr>').join('')+'</tbody></table>'}
+      ${trades.length===0?'<div class="empty">無記錄</div>':'<table><thead><tr><th>日期</th><th>類型</th><th>股數</th><th>價格</th><th>金額</th></tr></thead><tbody>'+trades.map(t=>'<tr><td style="white-space:nowrap">'+fmtDate(t.date)+'</td><td><span class="badge '+t.type+'">'+(t.type==='buy'?'買入':'賣出')+'</span></td><td>'+fmt(t.shares)+'</td><td>$'+fmt(fmtN(t.price,2))+'</td><td>$'+fmt(t.amount.toFixed(0))+'</td></tr>').join('')+'</tbody></table>'}
     </div>
     <div class="drawer-section">
       <div class="drawer-section-title">股利記錄（${divs.length} 筆，合計 $${fmt(divTotal.toFixed(0))}）</div>
-      ${divs.length===0?'<div class="empty">無記錄</div>':'<table><thead><tr><th>日期</th><th>現金股利</th><th>股票股利</th></tr></thead><tbody>'+divs.map(d=>'<tr><td style="white-space:nowrap">'+d.date+'</td><td class="pos">'+(d.cash>0?'$'+fmt(fmtN(d.cash,2)):'-')+'</td><td>'+(d.stock>0?fmt(d.stock)+'股':'-')+'</td></tr>').join('')+'</tbody></table>'}
+      ${divs.length===0?'<div class="empty">無記錄</div>':'<table><thead><tr><th>日期</th><th>現金股利</th><th>股票股利</th></tr></thead><tbody>'+divs.map(d=>'<tr><td style="white-space:nowrap">'+fmtDate(d.date)+'</td><td class="pos">'+(d.cash>0?'$'+fmt(fmtN(d.cash,2)):'-')+'</td><td>'+(d.stock>0?fmt(d.stock)+'股':'-')+'</td></tr>').join('')+'</tbody></table>'}
     </div>`;
   document.getElementById('overlay').classList.add('open');
   document.getElementById('drawer').classList.add('open');
@@ -416,8 +423,14 @@ function switchTab(tab){
   document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
   document.getElementById(tab).classList.add('active');
 }
-function renderAll(){renderOverview();renderHistory();renderDivYears();renderDeposits();}
+function renderAll(){renderOverview();renderHistory();renderDivYears();renderDeposits();renderRecentTrades();}
 
+function fmtDate(d){
+  if(!d)return'';
+  const s=String(d);
+  if(s.includes('T')){const dt=new Date(s);return dt.getFullYear()+'/'+(dt.getMonth()+1)+'/'+(dt.getDate());}
+  return s.replace(/-/g,'/');
+}
 const fmt=n=>Number(n).toLocaleString('zh-TW',{minimumFractionDigits:0,maximumFractionDigits:2});
 const fmtN=(n,d=2)=>Number(n).toFixed(d);
 
@@ -486,8 +499,8 @@ function getHoldings(){
   });
   state.dividends.forEach(d=>{if(map[d.code]&&d.stock>0)map[d.code].shares+=d.stock;});
   return Object.values(map).filter(h=>h.shares>0.001).sort((a,b)=>{
-    const pa=state.prices[a.code]||(a.shares>0?a.cost/a.shares:0);
-    const pb=state.prices[b.code]||(b.shares>0?b.cost/b.shares:0);
+    const pa=state.prices[a.code]||state.prices[String(a.code).trim()]||(a.shares>0?a.cost/a.shares:0);
+    const pb=state.prices[b.code]||state.prices[String(b.code).trim()]||(b.shares>0?b.cost/b.shares:0);
     return pb*b.shares - pa*a.shares;
   });
 }
@@ -504,7 +517,7 @@ function drawPie(holdings) {
     if (dist < 48 || dist > 80) { canvas.title=''; return; }
     let angle = Math.atan2(dy,dx) + Math.PI/2;
     if (angle < 0) angle += Math.PI*2;
-    const total=holdings.reduce((s,h)=>{const p=state.prices[h.code]||(h.shares>0?h.cost/h.shares:0);return s+p*h.shares;},0);
+    const total=holdings.reduce((s,h)=>{const p=state.prices[h.code]||state.prices[String(h.code).trim()]||(h.shares>0?h.cost/h.shares:0);return s+p*h.shares;},0);
     let start=0;
     for(const h of holdings){
       const p=state.prices[h.code]||(h.shares>0?h.cost/h.shares:0);
@@ -515,7 +528,7 @@ function drawPie(holdings) {
   };
   canvas.onmouseleave = function(){ canvas.title=''; };
   const ctx = canvas.getContext('2d');
-  const total = holdings.reduce((s,h)=>{const p=state.prices[h.code]||(h.shares>0?h.cost/h.shares:0);return s+p*h.shares;},0);
+  const total = holdings.reduce((s,h)=>{const p=state.prices[h.code]||state.prices[String(h.code).trim()]||(h.shares>0?h.cost/h.shares:0);return s+p*h.shares;},0);
   if (total <= 0) { ctx.clearRect(0,0,180,180); return; }
   let start = -Math.PI/2;
   const cx=90,cy=90,r=80;
@@ -547,7 +560,7 @@ function renderOverview(){
   const cashIn=state.trades.filter(t=>t.type==='buy').reduce((s,t)=>s+t.amount+t.fee,0);
   const cashOut=state.trades.filter(t=>t.type==='sell').reduce((s,t)=>s+t.amount-t.fee,0);
   const divCash=state.dividends.reduce((s,d)=>s+d.cash,0);
-  let mv=0;holdings.forEach(h=>{const p=state.prices[h.code]||(h.shares>0?h.cost/h.shares:0);mv+=p*h.shares;});
+  let mv=0;holdings.forEach(h=>{const p=state.prices[h.code]||state.prices[String(h.code).trim()]||(h.shares>0?h.cost/h.shares:0);mv+=p*h.shares;});
   const unreal=mv-holdings.reduce((s,h)=>s+h.cost,0);
   const totalReturn=mv+cashOut+divCash-cashIn;
   document.getElementById('metrics').innerHTML=`
@@ -561,7 +574,7 @@ function renderOverview(){
   const body=document.getElementById('holdings-body');
   if(!holdings.length){body.innerHTML='<tr><td colspan="8" class="empty">尚無持倉</td></tr>';return;}
   body.innerHTML=holdings.map((h,i)=>{
-    const avg=h.shares>0?h.cost/h.shares:0,cur=state.prices[h.code]||avg;
+    const avg=h.shares>0?h.cost/h.shares:0,cur=(state.prices[h.code]||state.prices[String(h.code).trim()])||avg;
     const val=cur*h.shares,pnl=val-h.cost,pct=h.cost>0?pnl/h.cost*100:0;
     const di=divByCode[h.code],divTotal=di?di.cash:0,divCount=di?di.count:0;
     const dot='<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+PIE_COLORS[i%PIE_COLORS.length]+';margin-right:6px;vertical-align:middle"></span>';
@@ -608,7 +621,7 @@ function renderDivYears(){
         </div>
         <div id="yd${y}${code.replace(/[^a-z0-9]/gi,'')}" style="display:none;background:var(--bg4);padding:4px 16px">
           <table style="margin:4px 0"><thead><tr><th>日期</th><th>現金股利</th><th>股票股利</th><th></th></tr></thead><tbody>
-          ${info.records.sort((a,b)=>b.date.localeCompare(a.date)).map(d=>'<tr><td style="white-space:nowrap">'+d.date+'</td><td class="pos">$'+fmt(fmtN(d.cash,2))+'</td><td>'+(d.stock>0?d.stock+'股':'-')+'</td><td><button class="del-btn" onclick="event.stopPropagation();deleteDividend('+d.id+')">刪除</button></td></tr>').join('')}
+          ${info.records.sort((a,b)=>String(b.date).localeCompare(String(a.date))).map(d=>'<tr><td style="white-space:nowrap">'+fmtDate(d.date)+'</td><td class="pos">$'+fmt(fmtN(d.cash,2))+'</td><td>'+(d.stock>0?d.stock+'股':'-')+'</td><td><button class="del-btn" onclick="event.stopPropagation();deleteDividend('+d.id+')">刪除</button></td></tr>').join('')}
           </tbody></table>
         </div>`).join('')}
       </div>
@@ -629,13 +642,29 @@ function renderHistory(){
   const body=document.getElementById('history-body');
   const sorted=[...state.trades].sort((a,b)=>b.date.localeCompare(a.date));
   if(!sorted.length){body.innerHTML='<tr><td colspan="8" class="empty">尚無交易記錄</td></tr>';return;}
-  body.innerHTML=sorted.map(t=>'<tr><td style="white-space:nowrap">'+t.date+'</td><td><span style="font-weight:600">'+t.name+'</span><br><span style="font-size:11px;color:var(--text2)">'+t.code+'</span></td><td><span class="badge '+t.type+'">'+(t.type==='buy'?'買入':'賣出')+'</span></td><td>'+fmt(t.shares)+'</td><td>$'+fmt(fmtN(t.price,2))+'</td><td>$'+fmt(t.fee)+'</td><td>$'+fmt(t.amount.toFixed(0))+'</td><td><button class="del-btn" onclick="deleteTrade('+t.id+')">刪除</button></td></tr>').join('');
+  body.innerHTML=sorted.map(t=>'<tr><td style="white-space:nowrap">'+fmtDate(t.date)+'</td><td><span style="font-weight:600">'+t.name+'</span><br><span style="font-size:11px;color:var(--text2)">'+t.code+'</span></td><td><span class="badge '+t.type+'">'+(t.type==='buy'?'買入':'賣出')+'</span></td><td>'+fmt(t.shares)+'</td><td>$'+fmt(fmtN(t.price,2))+'</td><td>$'+fmt(t.fee)+'</td><td>$'+fmt(t.amount.toFixed(0))+'</td><td><button class="del-btn" onclick="deleteTrade('+t.id+')">刪除</button></td></tr>').join('');
 }
 function renderDeposits(){
   const body=document.getElementById('dep-body');
   const sorted=[...state.deposits].sort((a,b)=>b.date.localeCompare(a.date));
   if(!sorted.length){body.innerHTML='<tr><td colspan="5" class="empty">尚無存提款記錄</td></tr>';return;}
-  body.innerHTML=sorted.map(d=>'<tr><td style="white-space:nowrap">'+d.date+'</td><td><span class="badge dep">'+(d.amount>=0?'存入':'提出')+'</span></td><td>'+(d.note||'-')+'</td><td class="'+(d.amount>=0?'pos':'neg')+'">'+(d.amount>=0?'+':'-')+'$'+fmt(Math.abs(d.amount).toFixed(0))+'</td><td><button class="del-btn" onclick="deleteDeposit('+d.id+')">刪除</button></td></tr>').join('');
+  body.innerHTML=sorted.map(d=>'<tr><td style="white-space:nowrap">'+fmtDate(d.date)+'</td><td><span class="badge dep">'+(d.amount>=0?'存入':'提出')+'</span></td><td>'+(d.note||'-')+'</td><td class="'+(d.amount>=0?'pos':'neg')+'">'+(d.amount>=0?'+':'-')+'$'+fmt(Math.abs(d.amount).toFixed(0))+'</td><td><button class="del-btn" onclick="deleteDeposit('+d.id+')">刪除</button></td></tr>').join('');
+}
+
+
+function renderRecentTrades(){
+  const body=document.getElementById('recent-trades-body');
+  if(!body)return;
+  const sorted=[...state.trades].sort((a,b)=>String(b.date).localeCompare(String(a.date))).slice(0,10);
+  if(!sorted.length){body.innerHTML='<tr><td colspan="6" class="empty">尚無交易記錄</td></tr>';return;}
+  body.innerHTML=sorted.map(t=>'<tr>'
+    +'<td style="white-space:nowrap">'+fmtDate(t.date)+'</td>'
+    +'<td><span style="font-weight:600">'+t.name+'</span><br><span style="font-size:11px;color:var(--text2)">'+t.code+'</span></td>'
+    +'<td><span class="badge '+t.type+'">'+(t.type==='buy'?'買入':'賣出')+'</span></td>'
+    +'<td>'+fmt(t.shares)+'</td>'
+    +'<td>$'+fmt(fmtN(t.price,2))+'</td>'
+    +'<td>$'+fmt(t.amount.toFixed(0))+'</td>'
+    +'</tr>').join('');
 }
 
 syncAll();
