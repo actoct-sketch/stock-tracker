@@ -276,7 +276,7 @@ async function fetchPrices(codes) {
     const map = {};
     (data.msgArray||[]).forEach(s => {
       const code = s.c;
-      const price = parseFloat(s.z !== '-' ? s.z : s.y); // z=成交價, y=昨收
+      const zVal=parseFloat(s.z), yVal=parseFloat(s.y); const price=(!isNaN(zVal)&&zVal>0)?zVal:yVal; // z=成交價(交易時段), y=昨收(收盤後)
       if (code && !isNaN(price)) map[code] = price;
     });
     return map;
@@ -485,7 +485,11 @@ function getHoldings(){
     else{const avg=h.shares>0?h.cost/h.shares:0;h.cost-=avg*t.shares;h.shares-=t.shares;if(h.shares<0.0001){h.shares=0;h.cost=0;}}
   });
   state.dividends.forEach(d=>{if(map[d.code]&&d.stock>0)map[d.code].shares+=d.stock;});
-  return Object.values(map).filter(h=>h.shares>0.001);
+  return Object.values(map).filter(h=>h.shares>0.001).sort((a,b)=>{
+    const pa=state.prices[a.code]||(a.shares>0?a.cost/a.shares:0);
+    const pb=state.prices[b.code]||(b.shares>0?b.cost/b.shares:0);
+    return pb*b.shares - pa*a.shares;
+  });
 }
 
 function getDivByCode(){const map={};state.dividends.forEach(d=>{if(!map[d.code])map[d.code]={cash:0,count:0};map[d.code].cash+=d.cash;map[d.code].count+=1;});return map;}
@@ -493,6 +497,23 @@ function getDivByCode(){const map={};state.dividends.forEach(d=>{if(!map[d.code]
 // --- 圓餅圖 ---
 function drawPie(holdings) {
   const canvas = document.getElementById('pie-chart');
+  canvas.onmousemove = function(e) {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    const cx=90,cy=90, dx=mx-cx, dy=my-cy, dist=Math.sqrt(dx*dx+dy*dy);
+    if (dist < 48 || dist > 80) { canvas.title=''; return; }
+    let angle = Math.atan2(dy,dx) + Math.PI/2;
+    if (angle < 0) angle += Math.PI*2;
+    const total=holdings.reduce((s,h)=>{const p=state.prices[h.code]||(h.shares>0?h.cost/h.shares:0);return s+p*h.shares;},0);
+    let start=0;
+    for(const h of holdings){
+      const p=state.prices[h.code]||(h.shares>0?h.cost/h.shares:0);
+      const mv=p*h.shares, slice=mv/total*Math.PI*2;
+      if(angle>=start && angle<start+slice){ canvas.title=h.name+' $'+Number(mv.toFixed(0)).toLocaleString('zh-TW'); return; }
+      start+=slice;
+    }
+  };
+  canvas.onmouseleave = function(){ canvas.title=''; };
   const ctx = canvas.getContext('2d');
   const total = holdings.reduce((s,h)=>{const p=state.prices[h.code]||(h.shares>0?h.cost/h.shares:0);return s+p*h.shares;},0);
   if (total <= 0) { ctx.clearRect(0,0,180,180); return; }
@@ -560,7 +581,7 @@ function renderDivYears(){
   // 按年分組
   const byYear={};
   state.dividends.forEach(d=>{
-    const y=d.date.split('/')[0]||d.date.split('-')[0];
+    const raw=d.date||''; const y=raw.includes('T')?raw.split('-')[0]:(raw.includes('/')?raw.split('/')[0]:raw.split('-')[0]);
     if(!byYear[y])byYear[y]={total:0,divs:[]};
     byYear[y].total+=d.cash; byYear[y].divs.push(d);
   });
