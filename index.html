@@ -274,33 +274,14 @@ const PIE_COLORS=['#5b9cf6','#34c77b','#f0a500','#ff6b6b','#a78bfa','#38bdf8','#
 const nameCache={'2330':'台積電','0050':'元大台灣50','0056':'元大高股息','006208':'富邦台50','00878':'國泰永續高股息','00919':'群益台灣精選高息','00882':'中信中國高股息','00893':'國泰智能電動車','00885':'富邦越南','2885':'元大金','2801':'彰銀','9914':'美利達','9921':'巨大','8299':'群聯','3260':'威剛','3596':'智易','2105':'正新','2890':'永豐金','3023':'信邦','6788':'華景電','00677U':'富邦VIX','6167':'久正'};
 
 // --- 股價查詢（mis.twse.com.tw 小型 API）---
-// 已知上櫃ETF清單（otc_前綴）
-const OTC_ETF = new Set(['00878','00919','00882','00893','00885','00677U','00900','00905','00923','00929','00930','00934','00936','00939','00940','00943','00946','00950']);
-
-function getPrefix(code){
-  if(OTC_ETF.has(code)) return 'otc_';
-  // 5碼以009開頭通常是上櫃ETF
-  if(/^009/.test(code)) return 'otc_';
-  return 'tse_';
-}
-
+// 透過 Apps Script 當中間人查詢股價（繞過 CORS）
 async function fetchPrices(codes) {
   if (!codes.length) return {};
-  // 同時查詢 tse_ 和 otc_ 版本，確保不漏掉
-  const tseQuery = codes.map(c => 'tse_'+c+'.tw').join('|');
-  const otcQuery = codes.map(c => 'otc_'+c+'.tw').join('|');
-  const fullQuery = tseQuery + '|' + otcQuery;
   try {
-    const res = await fetch('https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch='+encodeURIComponent(fullQuery)+'&json=1&delay=0');
-    const data = await res.json();
-    const map = {};
-    (data.msgArray||[]).forEach(s => {
-      const code = s.c;
-      const zVal=parseFloat(s.z), yVal=parseFloat(s.y);
-      const price=(!isNaN(zVal)&&zVal>0)?zVal:(!isNaN(yVal)&&yVal>0)?yVal:0;
-      if (code && price > 0) map[code] = price;
-    });
-    return map;
+    const url = API + '?action=prices&codes=' + encodeURIComponent(codes.join(','));
+    const res = await fetch(url, { redirect: 'follow' });
+    const map = await res.json();
+    return map || {};
   } catch(e) { return {}; }
 }
 
